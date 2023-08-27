@@ -8,6 +8,7 @@ The Simple Redis implementation in Go serves as a minimalist, educational exampl
 - `ECHO`
 - `SET` (with `PX` and `EX` options for setting expiry)
 - `GET`
+- `DEL`
 
 ## Requirements
 
@@ -71,6 +72,12 @@ SET key value EX 10
 
 ```bash
 GET key
+```
+
+### DEL
+
+```bash
+DEL key
 ```
 
 ## Code Structure
