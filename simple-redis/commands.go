@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 type StoreItem struct {
 	Value  string
 	Expiry time.Time
+	Mutex  sync.Mutex
 }
 
 var store = make(map[string]*StoreItem)
@@ -91,15 +93,19 @@ func PerformGet(args []string) string {
 		return errorMsg("no value provided to 'GET'")
 	}
 
-	// Perform expiry invalidations on GETs
 	item := store[args[0]]
 
 	// Check if it's null
 	if item == nil {
 		return nilBulkStringMsg()
 	}
-	now := time.Now()
+
+	// Item exists - enforce mutual exclusion on the expiry operation and retrieval
+	item.Mutex.Lock()
+	defer item.Mutex.Unlock()
+
 	// Check the expiry
+	now := time.Now()
 	if item.Expiry.Before(now) {
 		store[args[0]] = nil
 		return nilBulkStringMsg()

@@ -14,6 +14,7 @@ type Parser struct {
 	NumberOfArgumentsParsed int
 }
 
+// Parse converts an incoming byte string into usable command with it's args
 func Parse(command []byte) string {
 	var cmd string
 	args := []string{}
@@ -79,7 +80,7 @@ func Parse(command []byte) string {
 	return ParseCommand(cmd, args)
 }
 
-// ParseCommand parses the incoming
+// ParseCommand routes the parsed request to the correct command processor
 func ParseCommand(command string, args []string) string {
 	cmd := strings.ToLower(command)
 	switch cmd {
