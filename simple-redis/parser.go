@@ -82,16 +82,19 @@ func Parse(command []byte) string {
 
 // ParseCommand routes the parsed request to the correct command processor
 func ParseCommand(command string, args []string) string {
-	cmd := strings.ToLower(command)
+	cmd := strings.ToUpper(command)
+	fmt.Printf("Received '%s' command\n", cmd)
 	switch cmd {
-	case "ping":
-		return PerformPong(args)
-	case "echo":
-		return PerformEcho(args)
-	case "set":
-		return PerformSet(args)
-	case "get":
+	case "GET":
 		return PerformGet(args)
+	case "SET":
+		return PerformSet(args)
+	case "DEL":
+		return PerformDel(args)
+	case "PING":
+		return PerformPong(args)
+	case "ECHO":
+		return PerformEcho(args)
 	default:
 		return errorMsg(fmt.Sprintf("unknown command '%s'", cmd))
 	}

@@ -88,6 +88,7 @@ func PerformSet(args []string) string {
 	return stringMsg("OK")
 }
 
+// PerformGet retrieves a value from the database, if it exists and is not expired. If it is expired, it will be deleted
 func PerformGet(args []string) string {
 	if len(args) == 0 {
 		return errorMsg("no value provided to 'GET'")
@@ -112,4 +113,27 @@ func PerformGet(args []string) string {
 	}
 
 	return stringMsg(store[args[0]].Value)
+}
+
+// PerformDel deletes a value from the database, if it exists
+func PerformDel(args []string) string {
+	if len(args) == 0 {
+		return errorMsg("no value provided to 'DEL'")
+	}
+
+	item := store[args[0]]
+
+	// Check if it's null
+	if item == nil {
+		return nilBulkStringMsg()
+	}
+
+	// Item exists - enforce mutual exclusion on the expiry operation and removal
+	item.Mutex.Lock()
+	defer item.Mutex.Unlock()
+
+	// Delete the item
+	delete(store, args[0])
+
+	return stringMsg("OK")
 }
