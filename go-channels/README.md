@@ -1,6 +1,8 @@
-# Channels Logging Example 
+# Channels Logging Example
 
 ## Overview
+
+The blog post for this example can be found [here](https://www.joshuapare.com/posts/using-go-channels).
 
 This example serves as a short demonstration of how to use Go channels to implement a simple logging system, using a super inneficient implementation to simulate large wait times.
 
