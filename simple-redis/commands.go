@@ -11,13 +11,11 @@ import (
 type StoreItem struct {
 	Value  string
 	Expiry time.Time
-	Mutex  sync.Mutex
+	mutex  sync.Mutex
 }
 
-var store = make(map[string]*StoreItem)
-
 // PerformPong response pack with "PONG", or optionally a passed in argument
-func PerformPong(args []string) string {
+func PerformPong(args []string, p *PersistenceEngine) string {
 	if len(args) > 0 {
 		return stringMsg(args[0])
 	}
@@ -25,7 +23,7 @@ func PerformPong(args []string) string {
 }
 
 // PerformEcho responds back with the passed in argument
-func PerformEcho(args []string) string {
+func PerformEcho(args []string, p *PersistenceEngine) string {
 	if len(args) == 0 {
 		return errorMsg("no value provided to 'ECHO'")
 	}
@@ -33,7 +31,7 @@ func PerformEcho(args []string) string {
 }
 
 // PerformSet stores a value with an expiry in the database
-func PerformSet(args []string) string {
+func PerformSet(args []string, p *PersistenceEngine) string {
 	if len(args) < 2 {
 		return errorMsg("invalid syntax provided to 'SET'")
 	}
@@ -85,11 +83,17 @@ func PerformSet(args []string) string {
 		Value:  *val,
 		Expiry: exp,
 	}
+
+	p.Log(&PersistenceLog{
+		Command:   "SET",
+		Arguments: args,
+	})
+
 	return stringMsg("OK")
 }
 
 // PerformGet retrieves a value from the database, if it exists and is not expired. If it is expired, it will be deleted
-func PerformGet(args []string) string {
+func PerformGet(args []string, p *PersistenceEngine) string {
 	if len(args) == 0 {
 		return errorMsg("no value provided to 'GET'")
 	}
@@ -102,8 +106,8 @@ func PerformGet(args []string) string {
 	}
 
 	// Item exists - enforce mutual exclusion on the expiry operation and retrieval
-	item.Mutex.Lock()
-	defer item.Mutex.Unlock()
+	item.mutex.Lock()
+	defer item.mutex.Unlock()
 
 	// Check the expiry
 	now := time.Now()
@@ -116,7 +120,7 @@ func PerformGet(args []string) string {
 }
 
 // PerformDel deletes a value from the database, if it exists
-func PerformDel(args []string) string {
+func PerformDel(args []string, p *PersistenceEngine) string {
 	if len(args) == 0 {
 		return errorMsg("no value provided to 'DEL'")
 	}
@@ -129,11 +133,16 @@ func PerformDel(args []string) string {
 	}
 
 	// Item exists - enforce mutual exclusion on the expiry operation and removal
-	item.Mutex.Lock()
-	defer item.Mutex.Unlock()
+	item.mutex.Lock()
+	defer item.mutex.Unlock()
 
 	// Delete the item
 	delete(store, args[0])
+
+	p.Log(&PersistenceLog{
+		Command:   "DEL",
+		Arguments: args,
+	})
 
 	return stringMsg("OK")
 }

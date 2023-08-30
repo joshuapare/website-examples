@@ -10,12 +10,19 @@ import (
 
 const addr = "0.0.0.0:6379"
 
+type Store map[string]*StoreItem
+
+var store = make(Store)
+
 func main() {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		fmt.Printf("Failed to bind to %s\n", addr)
 		os.Exit(1)
 	}
+
+	persistenceEngine := NewPersistenceEngine(&store)
+	persistenceEngine.Start()
 
 	fmt.Printf("Starting Redis server at %s\n", addr)
 	// Listen for inputs and respond
@@ -39,7 +46,7 @@ func main() {
 
 				// Parse the command out
 				command := buf[:len]
-				response := Parse(command)
+				response := Parse(command, persistenceEngine)
 
 				// Write the response back to the connection
 				_, responseErr := conn.Write([]byte(response + "\r\n"))

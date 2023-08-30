@@ -15,7 +15,7 @@ type Parser struct {
 }
 
 // Parse converts an incoming byte string into usable command with it's args
-func Parse(command []byte) string {
+func Parse(command []byte, p *PersistenceEngine) string {
 	var cmd string
 	args := []string{}
 
@@ -77,24 +77,24 @@ func Parse(command []byte) string {
 		}
 	}
 
-	return ParseCommand(cmd, args)
+	return ParseCommand(cmd, args, p)
 }
 
 // ParseCommand routes the parsed request to the correct command processor
-func ParseCommand(command string, args []string) string {
+func ParseCommand(command string, args []string, p *PersistenceEngine) string {
 	cmd := strings.ToUpper(command)
 	fmt.Printf("Received '%s' command\n", cmd)
 	switch cmd {
 	case "GET":
-		return PerformGet(args)
+		return PerformGet(args, p)
 	case "SET":
-		return PerformSet(args)
+		return PerformSet(args, p)
 	case "DEL":
-		return PerformDel(args)
+		return PerformDel(args, p)
 	case "PING":
-		return PerformPong(args)
+		return PerformPong(args, p)
 	case "ECHO":
-		return PerformEcho(args)
+		return PerformEcho(args, p)
 	default:
 		return errorMsg(fmt.Sprintf("unknown command '%s'", cmd))
 	}
