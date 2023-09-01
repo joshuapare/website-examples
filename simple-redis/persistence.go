@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,7 +17,7 @@ import (
 
 type PersistenceLog struct {
 	// The command used for the action
-	Command string
+  Command string
 	// The arguments used for the action
 	Arguments []string
 	// Timestamp of the operation
@@ -31,6 +33,8 @@ type PersistenceEngine struct {
 	SnapshotDir string
 	// Interval at which to run a snapshot
 	SnapshotInterval time.Duration
+	// Time snapshots and AOFs will be retained before deleting
+	SnapshotRetention time.Duration
 	// The time since the last database snapshot
 	LastSnapshotTime time.Time
 	// The time since the last log to the AOF
@@ -57,15 +61,16 @@ type PersistenceEngine struct {
 func NewPersistenceEngine(store *Store) *PersistenceEngine {
 	fmt.Println("Starting persistence engine")
 	return &PersistenceEngine{
-		DataDir:          "_data",
-		AOFDir:           "aof",
-		SnapshotDir:      "snapshot",
-		LastLogFlushTime: time.Now(),
-		SnapshotInterval: time.Minute * 1,
-		LogFlushInterval: time.Second * 5,
-		LogChannel:       make(chan PersistenceLog), // Give the log channel a buffer to make non-blocking
-		LogRef:           make([]PersistenceLog, 2014),
-		StoreRef:         store,
+		DataDir:           "_data",
+		AOFDir:            "aof",
+		SnapshotDir:       "snapshot",
+		SnapshotRetention: time.Minute * 30,
+		LastLogFlushTime:  time.Now(),
+		SnapshotInterval:  time.Minute * 1,
+		LogFlushInterval:  time.Second * 5,
+		LogChannel:        make(chan PersistenceLog), // Give the log channel a buffer to make non-blocking
+		LogRef:            make([]PersistenceLog, 2014),
+		StoreRef:          store,
 	}
 }
 
@@ -107,8 +112,8 @@ func (p *PersistenceEngine) ensureDirsExist() error {
 	// Ensure our data directories exists
 	dirs := []string{
 		p.DataDir,
-		fmt.Sprintf("%s/%s", p.DataDir, p.SnapshotDir),
-		fmt.Sprintf("%s/%s", p.DataDir, p.AOFDir),
+		filepath.Join(p.DataDir, p.SnapshotDir),
+		filepath.Join(p.DataDir, p.AOFDir),
 	}
 
 	if err := makeDirsIfNotExists(dirs); err != nil {
@@ -161,7 +166,7 @@ func (p *PersistenceEngine) RotateLog() error {
 	}
 
 	// Create the buffered writer and encoder
-	newFileName := fmt.Sprintf("%s/%s/%d", p.DataDir, p.AOFDir, p.LastSnapshotTime.UnixMilli())
+	newFileName := filepath.Join(p.DataDir, p.AOFDir, strconv.FormatInt(p.LastSnapshotTime.UnixMilli(), 10))
 	file, err := os.Create(newFileName)
 	if err != nil {
 		return err
@@ -207,7 +212,8 @@ func (p *PersistenceEngine) PerformSnapshot() error {
 	}
 
 	// Create a file to write the compressed data
-	snapshotName := fmt.Sprintf("%s/%s/%d.gob.gz", p.DataDir, p.SnapshotDir, newSnapshotTime.UnixMilli())
+	fileName := fmt.Sprintf("%d.gob.gz", newSnapshotTime.UnixMilli())
+	snapshotName := filepath.Join(p.DataDir, p.SnapshotDir, fileName)
 	file, err := os.Create(snapshotName)
 	if err != nil {
 		fmt.Println("error creating snapshot:", err)
@@ -240,7 +246,7 @@ func (p *PersistenceEngine) PerformSnapshot() error {
 // RestoreSnapshot restores the database from a given snapshot and AOF log
 func (p *PersistenceEngine) RestoreSnapshot() error {
 	// Look for the most recent snapshot
-	files, err := os.ReadDir(fmt.Sprintf("%s/%s", p.DataDir, p.SnapshotDir))
+	files, err := os.ReadDir(filepath.Join(p.DataDir, p.SnapshotDir))
 	if err != nil {
 		fmt.Println("failed to read directory")
 	}
@@ -254,7 +260,7 @@ func (p *PersistenceEngine) RestoreSnapshot() error {
 	fmt.Printf("restoring snapshot %s\n", latestSnapshot)
 
 	// Create the gzip reader
-	compressedFile, err := os.ReadFile(fmt.Sprintf("%s/%s/%s", p.DataDir, p.SnapshotDir, latestSnapshot))
+	compressedFile, err := os.ReadFile(filepath.Join(p.DataDir, p.SnapshotDir, latestSnapshot))
 	if err != nil {
 		fmt.Println("failed to open snapshot")
 	}
@@ -280,11 +286,15 @@ func (p *PersistenceEngine) RestoreSnapshot() error {
 	return nil
 }
 
+func (p *PersistenceEngine) CleanupOldSnapshots() error {
+	return nil
+}
+
 // RestoreAOF Loads an AOF file for replaying to the store
 func (p *PersistenceEngine) RestoreAOF(snapshotFile string) error {
 	// remove the gob.gz from the end
 	snapshotId := strings.Trim(snapshotFile, ".gob.gz")
-	filePath := fmt.Sprintf("%s/%s/%s", p.DataDir, p.AOFDir, snapshotId)
+	filePath := filepath.Join(p.DataDir, p.AOFDir, snapshotId)
 	// Load the file for the necessary AOF
 	file, err := os.Open(filePath)
 	if err != nil {
