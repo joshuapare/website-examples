@@ -6,7 +6,9 @@ import (
 	"compress/gzip"
 	"encoding/gob"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -41,6 +43,8 @@ type PersistenceEngine struct {
 	LogFlushInterval time.Duration
 	// Pointer to the in-memory data store
 	StoreRef *Store
+	// Pointer to log reference
+	LogRef []PersistenceLog
 	// Buffered writer to use for persisting logs to disk
 	AOFBufferedWriter *bufio.Writer
 	// Encoder for writing binary files to the log
@@ -60,6 +64,7 @@ func NewPersistenceEngine(store *Store) *PersistenceEngine {
 		SnapshotInterval: time.Minute * 1,
 		LogFlushInterval: time.Second * 5,
 		LogChannel:       make(chan PersistenceLog), // Give the log channel a buffer to make non-blocking
+		LogRef:           make([]PersistenceLog, 2014),
 		StoreRef:         store,
 	}
 }
@@ -67,7 +72,7 @@ func NewPersistenceEngine(store *Store) *PersistenceEngine {
 // Start starts the persistence engine
 func (p *PersistenceEngine) Start() {
 	p.ensureDirsExist()
-
+	p.RestoreSnapshot()
 	// Ingest logs from the channel on a background thread
 	go func() {
 		for {
@@ -228,6 +233,102 @@ func (p *PersistenceEngine) PerformSnapshot() error {
 	// Successful snapshot! Rotate the AOF log and restart AOF ingestion from new starting point
 	p.LastSnapshotTime = newSnapshotTime
 	p.RotateLog()
+
+	return nil
+}
+
+// RestoreSnapshot restores the database from a given snapshot and AOF log
+func (p *PersistenceEngine) RestoreSnapshot() error {
+	// Look for the most recent snapshot
+	files, err := os.ReadDir(fmt.Sprintf("%s/%s", p.DataDir, p.SnapshotDir))
+	if err != nil {
+		fmt.Println("failed to read directory")
+	}
+
+	// Directories are already sorted by newFileName
+	for _, file := range files {
+		fmt.Printf("Found snapshot: %s\n", file.Name())
+	}
+
+	latestSnapshot := files[len(files)-1].Name()
+	fmt.Printf("restoring snapshot %s\n", latestSnapshot)
+
+	// Create the gzip reader
+	compressedFile, err := os.ReadFile(fmt.Sprintf("%s/%s/%s", p.DataDir, p.SnapshotDir, latestSnapshot))
+	if err != nil {
+		fmt.Println("failed to open snapshot")
+	}
+
+	gzipReader, err := gzip.NewReader(bytes.NewBuffer(compressedFile))
+	if err != nil {
+		fmt.Println("failed to open gzip reader:", err)
+	}
+	defer gzipReader.Close()
+
+	decompressedSnapshot, err := io.ReadAll(gzipReader)
+	if err != nil {
+		fmt.Println("failed to decompress snapshot", err)
+	}
+
+	dec := gob.NewDecoder(bytes.NewReader(decompressedSnapshot))
+	if err := dec.Decode(p.StoreRef); err != nil {
+		fmt.Println("Failed to decode snapshot gob: ", err)
+	}
+
+	// Replay the AOF for the selected snapshot
+	p.RestoreAOF(latestSnapshot)
+	return nil
+}
+
+// RestoreAOF Loads an AOF file for replaying to the store
+func (p *PersistenceEngine) RestoreAOF(snapshotFile string) error {
+	// remove the gob.gz from the end
+	snapshotId := strings.Trim(snapshotFile, ".gob.gz")
+	filePath := fmt.Sprintf("%s/%s/%s", p.DataDir, p.AOFDir, snapshotId)
+	// Load the file for the necessary AOF
+	file, err := os.Open(filePath)
+	if err != nil {
+		fmt.Println("error opening aof for snapshot:", err)
+	}
+
+	defer file.Close()
+
+	// Load them back into in-memory
+	dec := gob.NewDecoder(file)
+
+	// Replay the actions
+	var logsToReplay []PersistenceLog
+	for {
+		var log PersistenceLog
+		err := dec.Decode(&log)
+		if err != nil {
+			if err != io.EOF {
+				fmt.Println("encoundered error decoding aof: ", err)
+			}
+			break
+		}
+		fmt.Printf("restoring action: %v\n", log)
+		logsToReplay = append(logsToReplay, log)
+	}
+
+	// Run the replay
+	ReplayAOF(&logsToReplay)
+
+	return nil
+}
+
+// ReplayAOF replays the actions from an AOF back to disk
+func ReplayAOF(logs *[]PersistenceLog) error {
+	for _, log := range *logs {
+		switch log.Command {
+		case "SET":
+			PerformSet(log.Arguments, nil)
+		case "DEL":
+			PerformDel(log.Arguments, nil)
+		default:
+			fmt.Printf("unknown command to restore: %s\n", log.Command)
+		}
+	}
 
 	return nil
 }

@@ -11,7 +11,7 @@ import (
 type StoreItem struct {
 	Value  string
 	Expiry time.Time
-	mutex  sync.Mutex
+	mutex  sync.RWMutex
 }
 
 // PerformPong response pack with "PONG", or optionally a passed in argument
@@ -84,11 +84,12 @@ func PerformSet(args []string, p *PersistenceEngine) string {
 		Expiry: exp,
 	}
 
-	p.Log(&PersistenceLog{
-		Command:   "SET",
-		Arguments: args,
-	})
-
+	if p != nil {
+		p.Log(&PersistenceLog{
+			Command:   "SET",
+			Arguments: args,
+		})
+	}
 	return stringMsg("OK")
 }
 
@@ -105,9 +106,9 @@ func PerformGet(args []string, p *PersistenceEngine) string {
 		return nilBulkStringMsg()
 	}
 
-	// Item exists - enforce mutual exclusion on the expiry operation and retrieval
-	item.mutex.Lock()
-	defer item.mutex.Unlock()
+	// Allow simutaneous read, lock out write
+	item.mutex.RLock()
+	defer item.mutex.RUnlock()
 
 	// Check the expiry
 	now := time.Now()
@@ -132,17 +133,19 @@ func PerformDel(args []string, p *PersistenceEngine) string {
 		return nilBulkStringMsg()
 	}
 
-	// Item exists - enforce mutual exclusion on the expiry operation and removal
+	// Lock out read and write until write is done
 	item.mutex.Lock()
 	defer item.mutex.Unlock()
 
 	// Delete the item
 	delete(store, args[0])
 
-	p.Log(&PersistenceLog{
-		Command:   "DEL",
-		Arguments: args,
-	})
+	if p != nil {
+		p.Log(&PersistenceLog{
+			Command:   "DEL",
+			Arguments: args,
+		})
+	}
 
 	return stringMsg("OK")
 }
